@@ -26,7 +26,7 @@ class QuizApp extends StatelessWidget {
           brightness: Brightness.light,
         ),
         scaffoldBackgroundColor: Color(0xFFF3F7FF),
-        cardTheme: CardThemeData( // Changed from CardTheme to CardThemeData
+        cardTheme: CardThemeData(
           elevation: 12,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
@@ -257,8 +257,6 @@ class QuizDataManager {
           behavior: SnackBarBehavior.floating,
         ),
       );
-      // Optionally, don't add to _quizzes if server save fails
-      // _quizzes.add(quiz); // Commented out to prevent local-only saves
     }
     final quizJson = jsonEncode(_quizzes.map((q) => q.toJson()).toList());
     final prefs = await SharedPreferences.getInstance();
@@ -370,7 +368,7 @@ class QuizDataManager {
       });
   }
 
-  void startLiveUpdates(BuildContext context, String quizId) { // Added context parameter
+  void startLiveUpdates(BuildContext context, String quizId) {
     Timer.periodic(Duration(seconds: 3), (timer) {
       loadResults(context, quizId);
     });
@@ -419,18 +417,17 @@ class HomeScreen extends StatelessWidget {
                             width: 2,
                           ),
                         ),
-                        child: Icon(
-                          Icons.quiz_rounded,
-                          size: 80,
-                          color: Colors.white,
-                        ),
+                        child: Image.asset('assets/vk_preloader.png',
+                        height: 100,
+                        width: 100,
+                        fit: BoxFit.contain,),
                       ),
                     ),
                     SizedBox(height: 40),
                     FadeInUp(
                       delay: Duration(milliseconds: 200),
                       child: Text(
-                        'Quiz Master Pro',
+                        'VijnanaKeralamQuiz',
                         style: Theme.of(context).textTheme.headlineLarge!.copyWith(
                               color: Colors.white,
                               fontSize: 36,
@@ -469,6 +466,15 @@ class HomeScreen extends StatelessWidget {
                       Color(0xFF00E676),
                       () => _navigateToParticipant(context),
                       delay: 800,
+                    ),
+                    SizedBox(height: 24),
+                    _buildRoleButton(
+                      context,
+                      'Live Leaderboard',
+                      Icons.leaderboard_rounded,
+                      Color(0xFFFFC107),
+                      () => _navigateToLiveLeaderboard(context),
+                      delay: 1000,
                     ),
                   ],
                 ),
@@ -536,6 +542,13 @@ class HomeScreen extends StatelessWidget {
     showDialog(
       context: context,
       builder: (context) => ParticipantDetailsDialog(),
+    );
+  }
+
+  void _navigateToLiveLeaderboard(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => LiveLeaderboardScreen()),
     );
   }
 }
@@ -843,6 +856,13 @@ class _ParticipantDetailsDialogState extends State<ParticipantDetailsDialog> {
         ),
       );
     }
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _institutionController.dispose();
+    super.dispose();
   }
 }
 
@@ -1212,6 +1232,12 @@ class _QuestionInputDialogState extends State<QuestionInputDialog> {
       );
     }
   }
+
+  @override
+  void dispose() {
+    _textController.dispose();
+    super.dispose();
+  }
 }
 
 // Create Quiz Screen
@@ -1468,7 +1494,7 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
       questions: _questions,
       timePerQuestion: int.parse(_timeController.text),
       createdAt: DateTime.now(),
-      isActive: true, // Set to true by default
+      isActive: true,
     );
 
     QuizDataManager().addQuiz(context, quiz);
@@ -1482,6 +1508,13 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
     );
 
     Navigator.pop(context);
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _timeController.dispose();
+    super.dispose();
   }
 }
 
@@ -1953,15 +1986,11 @@ class QuizResultScreen extends StatelessWidget {
                       duration: const Duration(milliseconds: 900),
                       child: ElevatedButton(
                         onPressed: () {
-                          if (Navigator.of(context).canPop()) {
-                            Navigator.of(context).popUntil((route) => route.isFirst);
-                          } else {
-                            // Fallback to push home screen if popUntil fails
-                            Navigator.pushReplacement(
-                              context,
-                              MaterialPageRoute(builder: (context) => HomeScreen()),
-                            );
-                          }
+                          Navigator.pushAndRemoveUntil(
+                            context,
+                            MaterialPageRoute(builder: (context) => HomeScreen()),
+                            (route) => false,
+                          );
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.grey[600],
@@ -2022,7 +2051,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   void initState() {
     super.initState();
     _dataManager.loadResults(context, widget.quiz.id);
-    _dataManager.startLiveUpdates(context, widget.quiz.id); // Pass context here
+    _dataManager.startLiveUpdates(context, widget.quiz.id);
   }
 
   @override
@@ -2198,5 +2227,145 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
 
   String _formatDateTime(DateTime dateTime) {
     return '${dateTime.day}/${dateTime.month}/${dateTime.year} ${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}';
+  }
+}
+
+// Live Leaderboard Screen
+class LiveLeaderboardScreen extends StatefulWidget {
+  @override
+  _LiveLeaderboardScreenState createState() => _LiveLeaderboardScreenState();
+}
+
+class _LiveLeaderboardScreenState extends State<LiveLeaderboardScreen> {
+  final QuizDataManager _dataManager = QuizDataManager();
+
+  @override
+  void initState() {
+    super.initState();
+    _dataManager.loadQuizzes(context).then((_) => setState(() {}));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final activeQuizzes = _dataManager.getActiveQuizzes();
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Live Leaderboard'),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.refresh_rounded),
+            onPressed: () {
+              _dataManager.loadQuizzes(context).then((_) => setState(() {}));
+            },
+          ),
+        ],
+      ),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFF3F7FF), Colors.white],
+          ),
+        ),
+        child: Padding(
+          padding: EdgeInsets.all(20.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              FadeIn(
+                duration: Duration(milliseconds: 500),
+                child: Text(
+                  'Active Quizzes',
+                  style: Theme.of(context).textTheme.headlineMedium!.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+              ),
+              SizedBox(height: 16),
+              Expanded(
+                child: activeQuizzes.isEmpty
+                    ? Center(
+                        child: FadeIn(
+                          duration: Duration(milliseconds: 800),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.quiz_outlined,
+                                size: 80,
+                                color: Colors.grey[400],
+                              ),
+                              SizedBox(height: 16),
+                              Text(
+                                'No active quizzes available',
+                                style: Theme.of(context).textTheme.bodyLarge!.copyWith(
+                                      color: Colors.grey[600],
+                                      fontSize: 18,
+                                    ),
+                              ),
+                              SizedBox(height: 8),
+                              Text(
+                                'Please wait for an admin to start a quiz',
+                                style: TextStyle(
+                                  color: Colors.grey[500],
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    : ListView.builder(
+                        itemCount: activeQuizzes.length,
+                        itemBuilder: (context, index) {
+                          final quiz = activeQuizzes[index];
+                          return FadeInUp(
+                            duration: Duration(milliseconds: 600 + index * 100),
+                            child: Card(
+                              child: ListTile(
+                                leading: CircleAvatar(
+                                  backgroundColor: Color(0xFF1565C0),
+                                  child: Icon(Icons.quiz, color: Colors.white),
+                                ),
+                                title: Text(
+                                  quiz.title,
+                                  style: Theme.of(context).textTheme.bodyLarge!.copyWith(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                ),
+                                subtitle: Text(
+                                  '${quiz.questions.length} questions • ${quiz.timePerQuestion}s per question',
+                                  style: TextStyle(color: Colors.grey[600]),
+                                ),
+                                trailing: ElevatedButton(
+                                  onPressed: () => _viewLeaderboard(quiz),
+                                  child: Text('View Live Leaderboard'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Color(0xFFFFC107),
+                                    foregroundColor: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _viewLeaderboard(Quiz quiz) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => LeaderboardScreen(quiz: quiz),
+      ),
+    );
   }
 }
