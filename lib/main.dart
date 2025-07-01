@@ -417,7 +417,7 @@ class HomeScreen extends StatelessWidget {
                             width: 2,
                           ),
                         ),
-                        child: Image.asset('assets/vk_preloader.png',
+                        child: Image.network('https://vijnanakeralam.kerala.gov.in/kkem/images/vk_preloader.png',
                         height: 100,
                         width: 100,
                         fit: BoxFit.contain,),
