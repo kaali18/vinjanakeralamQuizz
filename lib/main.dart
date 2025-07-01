@@ -19,53 +19,64 @@ class QuizApp extends StatelessWidget {
     return MaterialApp(
       title: 'Organization Quiz App',
       theme: ThemeData(
-        primaryColor: Color(0xFF1A237E),
-        colorScheme: ColorScheme.fromSwatch(
-          primarySwatch: Colors.indigo,
-          accentColor: Color(0xFFFF6F00),
-        ).copyWith(
-          secondary: Color(0xFFFF6F00),
+        primarySwatch: Colors.blue,
+        primaryColor: Color(0xFF1565C0),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Color(0xFF1565C0),
+          brightness: Brightness.light,
         ),
-        scaffoldBackgroundColor: Color(0xFFF5F7FA),
-        cardTheme: CardThemeData( // Changed to CardThemeData
-          elevation: 8,
+        scaffoldBackgroundColor: Color(0xFFF3F7FF),
+        cardTheme: CardThemeData( // Changed from CardTheme to CardThemeData
+          elevation: 12,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(20),
           ),
-          shadowColor: Colors.black26,
+          shadowColor: Colors.blue.withOpacity(0.3),
         ),
         textTheme: TextTheme(
           headlineLarge: TextStyle(
-            fontSize: 28,
+            fontSize: 32,
             fontWeight: FontWeight.bold,
-            color: Color(0xFF1A237E),
+            color: Color(0xFF0D47A1),
             fontFamily: 'Roboto',
           ),
           headlineMedium: TextStyle(
-            fontSize: 20,
+            fontSize: 24,
             fontWeight: FontWeight.w600,
-            color: Color(0xFF1A237E),
+            color: Color(0xFF1565C0),
           ),
           bodyLarge: TextStyle(
             fontSize: 16,
-            color: Colors.black87,
+            color: Color(0xFF263238),
             fontFamily: 'Roboto',
           ),
         ),
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
-            backgroundColor: Color(0xFF1A237E),
+            backgroundColor: Color(0xFF1565C0),
             foregroundColor: Colors.white,
             padding: EdgeInsets.symmetric(vertical: 16, horizontal: 24),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(16),
             ),
-            elevation: 4,
+            elevation: 8,
+            shadowColor: Colors.blue.withOpacity(0.4),
             textStyle: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.bold,
               fontFamily: 'Roboto',
             ),
+          ),
+        ),
+        appBarTheme: AppBarTheme(
+          backgroundColor: Color(0xFF0D47A1),
+          foregroundColor: Colors.white,
+          elevation: 0,
+          centerTitle: true,
+          titleTextStyle: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
           ),
         ),
         visualDensity: VisualDensity.adaptivePlatformDensity,
@@ -76,7 +87,7 @@ class QuizApp extends StatelessWidget {
   }
 }
 
-// Models (unchanged)
+// Models
 class Question {
   final String question;
   final List<String> options;
@@ -139,6 +150,7 @@ class Quiz {
 
 class ParticipantResult {
   final String participantName;
+  final String institutionName;
   final String quizId;
   final int score;
   final int totalQuestions;
@@ -147,6 +159,7 @@ class ParticipantResult {
 
   ParticipantResult({
     required this.participantName,
+    required this.institutionName,
     required this.quizId,
     required this.score,
     required this.totalQuestions,
@@ -156,6 +169,7 @@ class ParticipantResult {
 
   Map<String, dynamic> toJson() => {
         'participantName': participantName,
+        'institutionName': institutionName,
         'quizId': quizId,
         'score': score,
         'totalQuestions': totalQuestions,
@@ -165,6 +179,7 @@ class ParticipantResult {
 
   factory ParticipantResult.fromJson(Map<String, dynamic> json) => ParticipantResult(
         participantName: json['participantName'],
+        institutionName: json['institutionName'] ?? '',
         quizId: json['quizId'],
         score: json['score'],
         totalQuestions: json['totalQuestions'],
@@ -181,13 +196,16 @@ class QuizDataManager {
 
   final List<Quiz> _quizzes = [];
   final List<ParticipantResult> _results = [];
-  final String _baseUrl = 'https://your-backend-service.onrender.com/api'; // Update with Render URL
+  final String _baseUrl = 'https://vinjanakeralamquizz-backend-1.onrender.com/api';
   final String _adminApiKey = 'ADMIN123';
+  final StreamController<List<ParticipantResult>> _resultsStreamController =
+      StreamController<List<ParticipantResult>>.broadcast();
 
   List<Quiz> get quizzes => _quizzes;
   List<ParticipantResult> get results => _results;
+  Stream<List<ParticipantResult>> get resultsStream => _resultsStreamController.stream;
 
-  Future<void> loadQuizzes() async {
+  Future<void> loadQuizzes(BuildContext context) async {
     try {
       final response = await http.get(Uri.parse('$_baseUrl/quizzes/active'));
       if (response.statusCode == 200) {
@@ -195,10 +213,17 @@ class QuizDataManager {
         _quizzes.clear();
         _quizzes.addAll(quizJson.map((q) => Quiz.fromJson(q)).toList());
       } else {
-        throw Exception('Failed to load quizzes: ${response.statusCode}');
+        throw Exception('Failed to load quizzes: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
       print('Error loading quizzes from server: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to load quizzes from server. Using local data.'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
       final prefs = await SharedPreferences.getInstance();
       final quizData = prefs.getString('quizzes');
       if (quizData != null) {
@@ -209,7 +234,7 @@ class QuizDataManager {
     }
   }
 
-  Future<void> saveQuizzes(Quiz quiz) async {
+  Future<void> saveQuizzes(BuildContext context, Quiz quiz) async {
     try {
       final response = await http.post(
         Uri.parse('$_baseUrl/quizzes'),
@@ -220,18 +245,27 @@ class QuizDataManager {
         body: jsonEncode(quiz.toJson()),
       );
       if (response.statusCode != 201) {
-        throw Exception('Failed to save quiz: ${response.statusCode}');
+        throw Exception('Failed to save quiz: ${response.statusCode} - ${response.body}');
       }
+      _quizzes.add(quiz);
     } catch (e) {
       print('Error saving quiz to server: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to save quiz to server: $e'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      // Optionally, don't add to _quizzes if server save fails
+      // _quizzes.add(quiz); // Commented out to prevent local-only saves
     }
-    _quizzes.add(quiz);
     final quizJson = jsonEncode(_quizzes.map((q) => q.toJson()).toList());
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('quizzes', quizJson);
   }
 
-  Future<void> updateQuizStatus(String quizId, bool isActive) async {
+  Future<void> updateQuizStatus(BuildContext context, String quizId, bool isActive) async {
     try {
       final response = await http.put(
         Uri.parse('$_baseUrl/quizzes/$quizId/status'),
@@ -242,30 +276,45 @@ class QuizDataManager {
         body: jsonEncode({'isActive': isActive}),
       );
       if (response.statusCode != 200) {
-        throw Exception('Failed to update quiz status: ${response.statusCode}');
+        throw Exception('Failed to update quiz status: ${response.statusCode} - ${response.body}');
       }
+      final quiz = _quizzes.firstWhere((q) => q.id == quizId);
+      quiz.isActive = isActive;
     } catch (e) {
       print('Error updating quiz status: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to update quiz status: $e'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
-    final quiz = _quizzes.firstWhere((q) => q.id == quizId);
-    quiz.isActive = isActive;
     final quizJson = jsonEncode(_quizzes.map((q) => q.toJson()).toList());
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('quizzes', quizJson);
   }
 
-  Future<void> loadResults(String quizId) async {
+  Future<void> loadResults(BuildContext context, String quizId) async {
     try {
       final response = await http.get(Uri.parse('$_baseUrl/results/$quizId'));
       if (response.statusCode == 200) {
         final List<dynamic> resultJson = jsonDecode(response.body);
         _results.clear();
         _results.addAll(resultJson.map((r) => ParticipantResult.fromJson(r)).toList());
+        _resultsStreamController.add(getQuizResults(quizId));
       } else {
-        throw Exception('Failed to load results: ${response.statusCode}');
+        throw Exception('Failed to load results: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
       print('Error loading results from server: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to load results from server. Using local data.'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
       final prefs = await SharedPreferences.getInstance();
       final resultList = prefs.getStringList('results') ?? [];
       _results.clear();
@@ -275,6 +324,7 @@ class QuizDataManager {
             .where((r) => r.quizId == quizId)
             .toList(),
       );
+      _resultsStreamController.add(getQuizResults(quizId));
     }
   }
 
@@ -286,7 +336,7 @@ class QuizDataManager {
         body: jsonEncode(result.toJson()),
       );
       if (response.statusCode != 201) {
-        throw Exception('Failed to save result: ${response.statusCode}');
+        throw Exception('Failed to save result: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
       print('Error saving result to server: $e');
@@ -297,13 +347,14 @@ class QuizDataManager {
     await prefs.setStringList('results', results);
   }
 
-  void addQuiz(Quiz quiz) {
-    saveQuizzes(quiz);
+  void addQuiz(BuildContext context, Quiz quiz) {
+    saveQuizzes(context, quiz);
   }
 
   void addResult(ParticipantResult result) {
     _results.add(result);
     saveResult(result);
+    _resultsStreamController.add(getQuizResults(result.quizId));
   }
 
   List<Quiz> getActiveQuizzes() {
@@ -318,6 +369,16 @@ class QuizDataManager {
         return a.totalTimeSpent.compareTo(b.totalTimeSpent);
       });
   }
+
+  void startLiveUpdates(BuildContext context, String quizId) { // Added context parameter
+    Timer.periodic(Duration(seconds: 3), (timer) {
+      loadResults(context, quizId);
+    });
+  }
+
+  void dispose() {
+    _resultsStreamController.close();
+  }
 }
 
 // Home Screen
@@ -328,9 +389,13 @@ class HomeScreen extends StatelessWidget {
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF1A237E), Color(0xFF3F51B5)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFF0D47A1),
+              Color(0xFF1565C0),
+              Color(0xFF1976D2),
+            ],
           ),
         ),
         child: SafeArea(
@@ -338,47 +403,72 @@ class HomeScreen extends StatelessWidget {
             child: FadeInUp(
               duration: Duration(milliseconds: 800),
               child: Padding(
-                padding: EdgeInsets.all(20.0),
+                padding: EdgeInsets.all(24.0),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(
-                      Icons.quiz,
-                      size: 100,
-                      color: Colors.white,
-                    ),
-                    SizedBox(height: 30),
-                    Text(
-                      'Quiz Master',
-                      style: Theme.of(context).textTheme.headlineLarge!.copyWith(
-                            color: Colors.white,
-                            fontSize: 32,
+                    ZoomIn(
+                      duration: Duration(milliseconds: 1000),
+                      child: Container(
+                        padding: EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(100),
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.3),
+                            width: 2,
                           ),
-                    ),
-                    SizedBox(height: 10),
-                    Text(
-                      'Test your knowledge or create quizzes!',
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: Colors.white70,
-                        fontFamily: 'Roboto',
+                        ),
+                        child: Icon(
+                          Icons.quiz_rounded,
+                          size: 80,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
-                    SizedBox(height: 50),
-                    _buildRoleButton(
-                      context,
-                      'Admin',
-                      Icons.admin_panel_settings,
-                      Color(0xFFFF6F00),
-                      () => _navigateToAdmin(context),
+                    SizedBox(height: 40),
+                    FadeInUp(
+                      delay: Duration(milliseconds: 200),
+                      child: Text(
+                        'Quiz Master Pro',
+                        style: Theme.of(context).textTheme.headlineLarge!.copyWith(
+                              color: Colors.white,
+                              fontSize: 36,
+                              fontWeight: FontWeight.w900,
+                            ),
+                      ),
                     ),
-                    SizedBox(height: 20),
+                    SizedBox(height: 12),
+                    FadeInUp(
+                      delay: Duration(milliseconds: 400),
+                      child: Text(
+                        'Challenge your knowledge with interactive quizzes!',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 18,
+                          color: Colors.white.withOpacity(0.9),
+                          fontFamily: 'Roboto',
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                    SizedBox(height: 60),
                     _buildRoleButton(
                       context,
-                      'Participant',
-                      Icons.person,
-                      Color(0xFF00C853),
+                      'Admin Dashboard',
+                      Icons.admin_panel_settings_rounded,
+                      Color(0xFF00BCD4),
+                      () => _navigateToAdmin(context),
+                      delay: 600,
+                    ),
+                    SizedBox(height: 24),
+                    _buildRoleButton(
+                      context,
+                      'Join as Participant',
+                      Icons.person_rounded,
+                      Color(0xFF00E676),
                       () => _navigateToParticipant(context),
+                      delay: 800,
                     ),
                   ],
                 ),
@@ -396,26 +486,39 @@ class HomeScreen extends StatelessWidget {
     IconData icon,
     Color color,
     VoidCallback onPressed,
-  ) {
-    return ZoomIn(
-      duration: Duration(milliseconds: 1000),
+    {required int delay}) {
+    return FadeInUp(
+      delay: Duration(milliseconds: delay),
       child: Container(
         width: double.infinity,
-        height: 60,
+        height: 70,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: color.withOpacity(0.3),
+              blurRadius: 20,
+              offset: Offset(0, 10),
+            ),
+          ],
+        ),
         child: ElevatedButton.icon(
           onPressed: onPressed,
-          icon: Icon(icon, size: 28),
+          icon: Icon(icon, size: 32),
           label: Text(
             title,
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
           ),
           style: ElevatedButton.styleFrom(
-            backgroundColor: color.withOpacity(0.9),
+            backgroundColor: color,
             foregroundColor: Colors.white,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(15),
+              borderRadius: BorderRadius.circular(20),
             ),
-            elevation: 5,
+            elevation: 0,
           ),
         ),
       ),
@@ -432,13 +535,15 @@ class HomeScreen extends StatelessWidget {
   void _navigateToParticipant(BuildContext context) {
     showDialog(
       context: context,
-      builder: (context) => ParticipantNameDialog(),
+      builder: (context) => ParticipantDetailsDialog(),
     );
   }
 }
 
 // Admin Passcode Dialog
 class AdminPasscodeDialog extends StatefulWidget {
+  const AdminPasscodeDialog({super.key});
+
   @override
   _AdminPasscodeDialogState createState() => _AdminPasscodeDialogState();
 }
@@ -446,45 +551,112 @@ class AdminPasscodeDialog extends StatefulWidget {
 class _AdminPasscodeDialogState extends State<AdminPasscodeDialog> {
   final _passcodeController = TextEditingController();
   final String _correctPasscode = "ADMIN123";
+  bool _isObscured = true;
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      backgroundColor: Colors.white.withOpacity(0.95),
-      title: Text('Admin Access', style: Theme.of(context).textTheme.headlineMedium),
-      content: FadeIn(
-        duration: Duration(milliseconds: 500),
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.blue.withOpacity(0.2),
+              blurRadius: 20,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Enter admin passcode:', style: Theme.of(context).textTheme.bodyLarge),
-            SizedBox(height: 10),
+            FadeIn(
+              duration: const Duration(milliseconds: 500),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1565C0).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Icon(
+                  Icons.security_rounded,
+                  size: 48,
+                  color: Color(0xFF1565C0),
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              'Admin Access',
+              style: Theme.of(context).textTheme.headlineMedium!.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Enter your admin passcode to continue',
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 16,
+              ),
+            ),
+            const SizedBox(height: 24),
             TextField(
               controller: _passcodeController,
-              obscureText: true,
+              obscureText: _isObscured,
               decoration: InputDecoration(
-                hintText: 'Passcode',
+                hintText: 'Enter passcode',
+                prefixIcon: const Icon(Icons.lock_rounded, color: Color(0xFF1565C0)),
+                suffixIcon: IconButton(
+                  icon: Icon(
+                    _isObscured ? Icons.visibility_off : Icons.visibility,
+                    color: const Color(0xFF1565C0),
+                  ),
+                  onPressed: () => setState(() => _isObscured = !_isObscured),
+                ),
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: const BorderSide(color: Color(0xFF1565C0)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: const BorderSide(color: Color(0xFF1565C0), width: 2),
                 ),
                 filled: true,
-                fillColor: Colors.grey[100],
+                fillColor: const Color(0xFF1565C0).withOpacity(0.05),
               ),
+            ),
+            const SizedBox(height: 32),
+            Row(
+              children: [
+                Expanded(
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.grey[600],
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
+                    child: const Text('Cancel'),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: _verifyPasscode,
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
+                    child: const Text('Enter'),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text('Cancel', style: TextStyle(color: Colors.grey[600])),
-        ),
-        ElevatedButton(
-          onPressed: _verifyPasscode,
-          child: Text('Enter'),
-        ),
-      ],
     );
   }
 
@@ -498,77 +670,177 @@ class _AdminPasscodeDialogState extends State<AdminPasscodeDialog> {
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Invalid passcode!'),
+          content: const Text('Invalid passcode! Please try again.'),
           backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       );
     }
   }
-}
 
-// Participant Name Dialog
-class ParticipantNameDialog extends StatefulWidget {
   @override
-  _ParticipantNameDialogState createState() => _ParticipantNameDialogState();
+  void dispose() {
+    _passcodeController.dispose();
+    super.dispose();
+  }
 }
 
-class _ParticipantNameDialogState extends State<ParticipantNameDialog> {
+// Participant Details Dialog
+class ParticipantDetailsDialog extends StatefulWidget {
+  @override
+  _ParticipantDetailsDialogState createState() => _ParticipantDetailsDialogState();
+}
+
+class _ParticipantDetailsDialogState extends State<ParticipantDetailsDialog> {
   final _nameController = TextEditingController();
+  final _institutionController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      backgroundColor: Colors.white.withOpacity(0.95),
-      title: Text('Participant Details', style: Theme.of(context).textTheme.headlineMedium),
-      content: FadeIn(
-        duration: Duration(milliseconds: 500),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('Enter your name:', style: Theme.of(context).textTheme.bodyLarge),
-            SizedBox(height: 10),
-            TextField(
-              controller: _nameController,
-              decoration: InputDecoration(
-                hintText: 'Your Name',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                filled: true,
-                fillColor: Colors.grey[100],
-              ),
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: Container(
+        padding: EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.blue.withOpacity(0.2),
+              blurRadius: 20,
+              offset: Offset(0, 10),
             ),
           ],
         ),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              FadeIn(
+                duration: Duration(milliseconds: 500),
+                child: Container(
+                  padding: EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Color(0xFF00E676).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Icon(
+                    Icons.person_add_rounded,
+                    size: 48,
+                    color: Color(0xFF00E676),
+                  ),
+                ),
+              ),
+              SizedBox(height: 24),
+              Text(
+                'Join Quiz',
+                style: Theme.of(context).textTheme.headlineMedium!.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              SizedBox(height: 8),
+              Text(
+                'Please provide your details to continue',
+                style: TextStyle(
+                  color: Colors.grey[600],
+                  fontSize: 16,
+                ),
+              ),
+              SizedBox(height: 24),
+              TextFormField(
+                controller: _nameController,
+                decoration: InputDecoration(
+                  hintText: 'Enter your full name',
+                  prefixIcon: Icon(Icons.person_rounded, color: Color(0xFF1565C0)),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: BorderSide(color: Color(0xFF1565C0)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: BorderSide(color: Color(0xFF1565C0), width: 2),
+                  ),
+                  filled: true,
+                  fillColor: Color(0xFF1565C0).withOpacity(0.05),
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Please enter your name';
+                  }
+                  return null;
+                },
+              ),
+              SizedBox(height: 16),
+              TextFormField(
+                controller: _institutionController,
+                decoration: InputDecoration(
+                  hintText: 'Enter your institution/organization',
+                  prefixIcon: Icon(Icons.school_rounded, color: Color(0xFF1565C0)),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: BorderSide(color: Color(0xFF1565C0)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: BorderSide(color: Color(0xFF1565C0), width: 2),
+                  ),
+                  filled: true,
+                  fillColor: Color(0xFF1565C0).withOpacity(0.05),
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Please enter your institution';
+                  }
+                  return null;
+                },
+              ),
+              SizedBox(height: 32),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: Text('Cancel'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.grey[600],
+                        padding: EdgeInsets.symmetric(vertical: 16),
+                      ),
+                    ),
+                  ),
+                  SizedBox(width: 16),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _enterAsParticipant,
+                      child: Text('Continue'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Color(0xFF00E676),
+                        padding: EdgeInsets.symmetric(vertical: 16),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text('Cancel', style: TextStyle(color: Colors.grey[600])),
-        ),
-        ElevatedButton(
-          onPressed: _enterAsParticipant,
-          child: Text('Continue'),
-        ),
-      ],
     );
   }
 
   void _enterAsParticipant() {
-    if (_nameController.text.trim().isNotEmpty) {
+    if (_formKey.currentState!.validate()) {
       Navigator.pop(context);
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (context) => ParticipantDashboard(
             participantName: _nameController.text.trim(),
+            institutionName: _institutionController.text.trim(),
           ),
         ),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Please enter your name!')),
       );
     }
   }
@@ -586,7 +858,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
   @override
   void initState() {
     super.initState();
-    _dataManager.loadQuizzes().then((_) => setState(() {}));
+    _dataManager.loadQuizzes(context).then((_) => setState(() {}));
   }
 
   @override
@@ -594,99 +866,143 @@ class _AdminDashboardState extends State<AdminDashboard> {
     return Scaffold(
       appBar: AppBar(
         title: Text('Admin Dashboard'),
-        backgroundColor: Color(0xFFFF6F00),
-        foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: Icon(Icons.refresh_rounded),
+            onPressed: () {
+              _dataManager.loadQuizzes(context).then((_) => setState(() {}));
+            },
+          ),
+        ],
       ),
-      body: Padding(
-        padding: EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            FadeInDown(
-              duration: Duration(milliseconds: 600),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: _createNewQuiz,
-                      icon: Icon(Icons.add),
-                      label: Text('Create New Quiz'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Color(0xFF00C853),
-                        foregroundColor: Colors.white,
-                        padding: EdgeInsets.symmetric(vertical: 12),
-                      ),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color(0xFFF3F7FF),
+              Colors.white,
+            ],
+          ),
+        ),
+        child: Padding(
+          padding: EdgeInsets.all(20.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              FadeInDown(
+                duration: Duration(milliseconds: 600),
+                child: Container(
+                  width: double.infinity,
+                  height: 60,
+                  child: ElevatedButton.icon(
+                    onPressed: _createNewQuiz,
+                    icon: Icon(Icons.add_rounded, size: 28),
+                    label: Text('Create New Quiz'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Color(0xFF00E676),
+                      foregroundColor: Colors.white,
                     ),
                   ),
-                ],
+                ),
               ),
-            ),
-            SizedBox(height: 20),
-            Text(
-              'Existing Quizzes:',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-            SizedBox(height: 10),
-            Expanded(
-              child: _dataManager.quizzes.isEmpty
-                  ? Center(
-                      child: FadeIn(
-                        duration: Duration(milliseconds: 800),
-                        child: Text(
-                          'No quizzes created yet.\nTap "Create New Quiz" to get started!',
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.bodyLarge!.copyWith(
-                                color: Colors.grey[600],
+              SizedBox(height: 32),
+              Text(
+                'Quiz Management',
+                style: Theme.of(context).textTheme.headlineMedium!.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              SizedBox(height: 16),
+              Expanded(
+                child: _dataManager.quizzes.isEmpty
+                    ? Center(
+                        child: FadeIn(
+                          duration: Duration(milliseconds: 800),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.quiz_outlined,
+                                size: 80,
+                                color: Colors.grey[400],
                               ),
+                              SizedBox(height: 16),
+                              Text(
+                                'No quizzes created yet',
+                                style: Theme.of(context).textTheme.bodyLarge!.copyWith(
+                                      color: Colors.grey[600],
+                                      fontSize: 18,
+                                    ),
+                              ),
+                              SizedBox(height: 8),
+                              Text(
+                                'Tap "Create New Quiz" to get started',
+                                style: TextStyle(
+                                  color: Colors.grey[500],
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    )
-                  : ListView.builder(
-                      itemCount: _dataManager.quizzes.length,
-                      itemBuilder: (context, index) {
-                        final quiz = _dataManager.quizzes[index];
-                        return FadeInUp(
-                          duration: Duration(milliseconds: 600 + index * 100),
-                          child: Card(
-                            color: Colors.white.withOpacity(0.9),
-                            child: ListTile(
-                              title: Text(quiz.title, style: Theme.of(context).textTheme.bodyLarge),
-                              subtitle: Text(
-                                '${quiz.questions.length} questions • ${quiz.timePerQuestion}s per question',
-                                style: TextStyle(color: Colors.grey[600]),
-                              ),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Switch(
-                                    value: quiz.isActive,
-                                    activeColor: Color(0xFF00C853),
-                                    onChanged: (value) {
-                                      setState(() {
-                                        _dataManager.updateQuizStatus(quiz.id, value);
-                                      });
-                                    },
-                                  ),
-                                  IconButton(
-                                    icon: Icon(Icons.leaderboard, color: Color(0xFF1A237E)),
-                                    onPressed: () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (context) => LeaderboardScreen(quiz: quiz),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                ],
+                      )
+                    : ListView.builder(
+                        itemCount: _dataManager.quizzes.length,
+                        itemBuilder: (context, index) {
+                          final quiz = _dataManager.quizzes[index];
+                          return FadeInUp(
+                            duration: Duration(milliseconds: 600 + index * 100),
+                            child: Card(
+                              child: ListTile(
+                                leading: CircleAvatar(
+                                  backgroundColor: Color(0xFF1565C0),
+                                  child: Icon(Icons.quiz, color: Colors.white),
+                                ),
+                                title: Text(
+                                  quiz.title,
+                                  style: Theme.of(context).textTheme.bodyLarge!.copyWith(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                ),
+                                subtitle: Text(
+                                  '${quiz.questions.length} questions • ${quiz.timePerQuestion}s per question',
+                                  style: TextStyle(color: Colors.grey[600]),
+                                ),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Switch(
+                                      value: quiz.isActive,
+                                      activeColor: Color(0xFF00E676),
+                                      onChanged: (value) {
+                                        _dataManager
+                                            .updateQuizStatus(context, quiz.id, value)
+                                            .then((_) => setState(() {}));
+                                      },
+                                    ),
+                                    IconButton(
+                                      icon: Icon(Icons.leaderboard, color: Color(0xFF1565C0)),
+                                      onPressed: () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) => LeaderboardScreen(quiz: quiz),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
-                          ),
-                        );
-                      },
-                    ),
-            ),
-          ],
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -696,7 +1012,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => CreateQuizScreen()),
-    ).then((_) => setState(() {}));
+    ).then((_) => _dataManager.loadQuizzes(context).then((_) => setState(() {})));
   }
 }
 
@@ -715,77 +1031,100 @@ class _QuestionInputDialogState extends State<QuestionInputDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      backgroundColor: Colors.white.withOpacity(0.95),
-      title: Text('Add Questions', style: Theme.of(context).textTheme.headlineMedium),
-      content: Container(
-        width: double.maxFinite,
-        height: 400,
-        child: FadeIn(
-          duration: Duration(milliseconds: 500),
-          child: Column(
-            children: [
-              Text(
-                'Enter questions in this format (one per line):',
-                style: Theme.of(context).textTheme.bodyLarge!.copyWith(fontWeight: FontWeight.bold),
-              ),
-              SizedBox(height: 8),
-              Text(
-                'Question|Option1|Option2|Option3|Option4|CorrectAnswerIndex',
-                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-              ),
-              SizedBox(height: 8),
-              Text(
-                'Or upload a text file with the same format',
-                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-              ),
-              SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: _uploadFile,
-                      icon: Icon(Icons.upload_file),
-                      label: Text('Upload File'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Color(0xFF1A237E),
-                        foregroundColor: Colors.white,
-                      ),
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: Container(
+        padding: EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.blue.withOpacity(0.2),
+              blurRadius: 20,
+              offset: Offset(0, 10),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            FadeIn(
+              duration: Duration(milliseconds: 500),
+              child: Text(
+                'Add Questions',
+                style: Theme.of(context).textTheme.headlineMedium!.copyWith(
+                      fontWeight: FontWeight.bold,
                     ),
-                  ),
-                ],
               ),
-              SizedBox(height: 16),
-              Expanded(
-                child: TextField(
-                  controller: _textController,
-                  maxLines: null,
-                  expands: true,
-                  decoration: InputDecoration(
-                    hintText: 'Example:\nWhat is 2+2?|3|4|5|6|2\nCapital of France?|London|Paris|Berlin|Madrid|2',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
+            ),
+            SizedBox(height: 16),
+            Text(
+              'Enter questions in the format (one per line):',
+              style: Theme.of(context).textTheme.bodyLarge,
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Question|Option1|Option2|Option3|Option4|CorrectAnswerIndex',
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Or upload a text file with the same format',
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+            ),
+            SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: _uploadFile,
+              icon: Icon(Icons.upload_file),
+              label: Text('Upload File'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Color(0xFF1565C0),
+                foregroundColor: Colors.white,
+              ),
+            ),
+            SizedBox(height: 16),
+            TextField(
+              controller: _textController,
+              maxLines: 8,
+              decoration: InputDecoration(
+                hintText:
+                    'Example:\nWhat is 2+2?|3|4|5|6|2\nCapital of France?|London|Paris|Berlin|Madrid|2',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                filled: true,
+                fillColor: Color(0xFF1565C0).withOpacity(0.05),
+              ),
+            ),
+            SizedBox(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: Text('Cancel'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.grey[600],
+                      padding: EdgeInsets.symmetric(vertical: 16),
                     ),
-                    filled: true,
-                    fillColor: Colors.grey[100],
                   ),
                 ),
-              ),
-            ],
-          ),
+                SizedBox(width: 16),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: _processQuestions,
+                    child: Text('Add Questions'),
+                    style: ElevatedButton.styleFrom(
+                      padding: EdgeInsets.symmetric(vertical: 16),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text('Cancel', style: TextStyle(color: Colors.grey[600])),
-        ),
-        ElevatedButton(
-          onPressed: _processQuestions,
-          child: Text('Add Questions'),
-        ),
-      ],
     );
   }
 
@@ -811,6 +1150,7 @@ class _QuestionInputDialogState extends State<QuestionInputDialog> {
         SnackBar(
           content: Text('Error uploading file: $e'),
           backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
         ),
       );
     }
@@ -821,43 +1161,53 @@ class _QuestionInputDialogState extends State<QuestionInputDialog> {
       List<Question> questions = [];
       List<String> lines = _textController.text.split('\n');
 
-      for (int i = 0; i < lines.length; i++) {
-        String line = lines[i].trim();
+      for (var line in lines) {
+        line = line.trim();
         if (line.isEmpty) continue;
 
         List<String> parts = line.split('|');
-        if (parts.length >= 6) {
-          String questionText = parts[0].trim();
-          List<String> options = [
-            parts[1].trim(),
-            parts[2].trim(),
-            parts[3].trim(),
-            parts[4].trim(),
-          ];
-          int correctAnswer = int.parse(parts[5].trim()) - 1;
-
-          if (correctAnswer >= 0 && correctAnswer < 4) {
-            questions.add(Question(
-              question: questionText,
-              options: options,
-              correctAnswer: correctAnswer,
-            ));
-          }
+        if (parts.length != 6) {
+          throw Exception('Invalid format in line: $line');
         }
+        String questionText = parts[0].trim();
+        List<String> options = [
+          parts[1].trim(),
+          parts[2].trim(),
+          parts[3].trim(),
+          parts[4].trim(),
+        ];
+        int correctAnswer = int.parse(parts[5].trim()) - 1;
+
+        if (correctAnswer < 0 || correctAnswer >= 4) {
+          throw Exception('Invalid correct answer index in line: $line');
+        }
+
+        questions.add(Question(
+          question: questionText,
+          options: options,
+          correctAnswer: correctAnswer,
+        ));
       }
 
       if (questions.isEmpty) {
-        throw Exception('No valid questions found');
+        throw Exception('No valid questions provided');
       }
 
       widget.onQuestionsAdded(questions);
       Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Successfully added ${questions.length} questions!'),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error: $e\n\nPlease check the format.'),
+          content: Text('Error: $e'),
           backgroundColor: Colors.red,
-          duration: Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
         ),
       );
     }
@@ -880,88 +1230,87 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text('Create Quiz'),
-        backgroundColor: Color(0xFF00C853),
-        foregroundColor: Colors.white,
       ),
-      body: Padding(
-        padding: EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            FadeIn(
-              duration: Duration(milliseconds: 500),
-              child: TextField(
-                controller: _titleController,
-                decoration: InputDecoration(
-                  labelText: 'Quiz Title',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  filled: true,
-                  fillColor: Colors.grey[100],
-                ),
-              ),
-            ),
-            SizedBox(height: 16),
-            FadeIn(
-              duration: Duration(milliseconds: 600),
-              child: TextField(
-                controller: _timeController,
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                  labelText: 'Time per question (seconds)',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  filled: true,
-                  fillColor: Colors.grey[100],
-                ),
-              ),
-            ),
-            SizedBox(height: 20),
-            Row(
-              children: [
-                Expanded(
-                  child: FadeIn(
-                    duration: Duration(milliseconds: 700),
-                    child: ElevatedButton.icon(
-                      onPressed: _showQuestionInputDialog,
-                      icon: Icon(Icons.add),
-                      label: Text('Add Questions'),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: FadeIn(
-                    duration: Duration(milliseconds: 800),
-                    child: ElevatedButton.icon(
-                      onPressed: _showSampleFormat,
-                      icon: Icon(Icons.info),
-                      label: Text('View Sample Format'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.grey[600],
-                        foregroundColor: Colors.white,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            SizedBox(height: 10),
-            if (_questions.isNotEmpty) ...[
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFF3F7FF), Colors.white],
+          ),
+        ),
+        child: Padding(
+          padding: EdgeInsets.all(20.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               FadeIn(
-                duration: Duration(milliseconds: 900),
-                child: Text(
-                  'Loaded ${_questions.length} questions',
-                  style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+                duration: Duration(milliseconds: 500),
+                child: TextField(
+                  controller: _titleController,
+                  decoration: InputDecoration(
+                    labelText: 'Quiz Title',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    filled: true,
+                    fillColor: Color(0xFF1565C0).withOpacity(0.05),
+                  ),
                 ),
               ),
-              SizedBox(height: 10),
+              SizedBox(height: 16),
+              FadeIn(
+                duration: Duration(milliseconds: 600),
+                child: TextField(
+                  controller: _timeController,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText: 'Time per question (seconds)',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    filled: true,
+                    fillColor: Color(0xFF1565C0).withOpacity(0.05),
+                  ),
+                ),
+              ),
+              SizedBox(height: 24),
+              FadeIn(
+                duration: Duration(milliseconds: 700),
+                child: ElevatedButton.icon(
+                  onPressed: _showQuestionInputDialog,
+                  icon: Icon(Icons.add_rounded),
+                  label: Text('Add Questions'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Color(0xFF00E676),
+                    foregroundColor: Colors.white,
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                  ),
+                ),
+              ),
+              SizedBox(height: 16),
+              FadeIn(
+                duration: Duration(milliseconds: 800),
+                child: ElevatedButton.icon(
+                  onPressed: _showSampleFormat,
+                  icon: Icon(Icons.info_rounded),
+                  label: Text('View Sample Format'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.grey[600],
+                    foregroundColor: Colors.white,
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                  ),
+                ),
+              ),
+              SizedBox(height: 24),
+              if (_questions.isNotEmpty)
+                FadeIn(
+                  duration: Duration(milliseconds: 900),
+                  child: Text(
+                    'Loaded ${_questions.length} questions',
+                    style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+                  ),
+                ),
               Expanded(
                 child: ListView.builder(
                   itemCount: _questions.length,
@@ -970,32 +1319,33 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
                     return FadeInUp(
                       duration: Duration(milliseconds: 600 + index * 100),
                       child: Card(
-                        color: Colors.white.withOpacity(0.9),
                         child: Padding(
-                          padding: EdgeInsets.all(12.0),
+                          padding: EdgeInsets.all(16),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
                                 'Q${index + 1}: ${question.question}',
-                                style: Theme.of(context).textTheme.bodyLarge!.copyWith(fontWeight: FontWeight.bold),
+                                style: Theme.of(context).textTheme.bodyLarge!.copyWith(
+                                      fontWeight: FontWeight.bold,
+                                    ),
                               ),
                               SizedBox(height: 8),
                               ...question.options.asMap().entries.map((entry) {
-                                int optionIndex = entry.key;
+                                int idx = entry.key;
                                 String option = entry.value;
-                                bool isCorrect = optionIndex == question.correctAnswer;
-                                return Padding(
-                                  padding: EdgeInsets.only(left: 16, top: 4),
-                                  child: Text(
-                                    '${String.fromCharCode(65 + optionIndex)}. $option',
-                                    style: TextStyle(
-                                      color: isCorrect ? Colors.green : Colors.black,
-                                      fontWeight: isCorrect ? FontWeight.bold : FontWeight.normal,
-                                    ),
+                                return Text(
+                                  '${String.fromCharCode(65 + idx)}. $option',
+                                  style: TextStyle(
+                                    color: idx == question.correctAnswer
+                                        ? Colors.green
+                                        : Colors.black87,
+                                    fontWeight: idx == question.correctAnswer
+                                        ? FontWeight.bold
+                                        : FontWeight.normal,
                                   ),
                                 );
-                              }).toList(),
+                              }),
                             ],
                           ),
                         ),
@@ -1004,27 +1354,20 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
                   },
                 ),
               ),
-            ],
-            SizedBox(height: 20),
-            Row(
-              children: [
-                Expanded(
-                  child: FadeIn(
-                    duration: Duration(milliseconds: 1000),
-                    child: ElevatedButton(
-                      onPressed: _canCreateQuiz() ? _createQuiz : null,
-                      child: Text('Create Quiz'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Color(0xFF1A237E),
-                        foregroundColor: Colors.white,
-                        padding: EdgeInsets.symmetric(vertical: 12),
-                      ),
-                    ),
+              SizedBox(height: 24),
+              FadeIn(
+                duration: Duration(milliseconds: 1000),
+                child: ElevatedButton(
+                  onPressed: _canCreateQuiz() ? _createQuiz : null,
+                  child: Text('Create Quiz'),
+                  style: ElevatedButton.styleFrom(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    minimumSize: Size(double.infinity, 50),
                   ),
                 ),
-              ],
-            ),
-          ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1032,8 +1375,8 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
 
   bool _canCreateQuiz() {
     return _titleController.text.trim().isNotEmpty &&
-           _timeController.text.trim().isNotEmpty &&
-           _questions.isNotEmpty;
+        _timeController.text.trim().isNotEmpty &&
+        _questions.isNotEmpty;
   }
 
   void _showQuestionInputDialog() {
@@ -1044,12 +1387,6 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
           setState(() {
             _questions = questions;
           });
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Successfully added ${questions.length} questions!'),
-              backgroundColor: Colors.green,
-            ),
-          );
         },
       ),
     );
@@ -1058,49 +1395,68 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
   void _showSampleFormat() {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        backgroundColor: Colors.white.withOpacity(0.95),
-        title: Text('Question Format', style: Theme.of(context).textTheme.headlineMedium),
-        content: SingleChildScrollView(
-          child: FadeIn(
-            duration: Duration(milliseconds: 500),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Format each question as:',
-                  style: Theme.of(context).textTheme.bodyLarge!.copyWith(fontWeight: FontWeight.bold),
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Container(
+          padding: EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.blue.withOpacity(0.2),
+                blurRadius: 20,
+                offset: Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Question Format',
+                style: Theme.of(context).textTheme.headlineMedium!.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              SizedBox(height: 16),
+              Text(
+                'Format each question as:',
+                style: Theme.of(context).textTheme.bodyLarge,
+              ),
+              SizedBox(height: 8),
+              Text(
+                'Question|Option1|Option2|Option3|Option4|CorrectAnswerIndex',
+                style: TextStyle(color: Colors.grey[600]),
+              ),
+              SizedBox(height: 16),
+              Text(
+                'Example:',
+                style: Theme.of(context).textTheme.bodyLarge,
+              ),
+              SizedBox(height: 8),
+              Text(
+                'What is 2+2?|3|4|5|6|2\nCapital of France?|London|Paris|Berlin|Madrid|2',
+                style: TextStyle(color: Colors.grey[600]),
+              ),
+              SizedBox(height: 16),
+              Text(
+                'Note: Correct answer index starts from 1',
+                style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+              ),
+              SizedBox(height: 24),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text('Got it'),
+                  style: TextButton.styleFrom(foregroundColor: Colors.grey[600]),
                 ),
-                SizedBox(height: 8),
-                Text('Question|Option1|Option2|Option3|Option4|CorrectAnswerIndex'),
-                SizedBox(height: 16),
-                Text(
-                  'Examples:',
-                  style: Theme.of(context).textTheme.bodyLarge!.copyWith(fontWeight: FontWeight.bold),
-                ),
-                SizedBox(height: 8),
-                Text('What is 2+2?|3|4|5|6|2'),
-                Text('Capital of France?|London|Paris|Berlin|Madrid|2'),
-                SizedBox(height: 16),
-                Text(
-                  'Note: Correct answer index starts from 1',
-                  style: TextStyle(
-                    color: Colors.red,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('Got it', style: TextStyle(color: Colors.grey[600])),
-          ),
-        ],
       ),
     );
   }
@@ -1112,14 +1468,16 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
       questions: _questions,
       timePerQuestion: int.parse(_timeController.text),
       createdAt: DateTime.now(),
+      isActive: true, // Set to true by default
     );
 
-    QuizDataManager().addQuiz(quiz);
+    QuizDataManager().addQuiz(context, quiz);
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('Quiz created successfully!'),
         backgroundColor: Colors.green,
+        behavior: SnackBarBehavior.floating,
       ),
     );
 
@@ -1130,8 +1488,12 @@ class _CreateQuizScreenState extends State<CreateQuizScreen> {
 // Participant Dashboard
 class ParticipantDashboard extends StatefulWidget {
   final String participantName;
+  final String institutionName;
 
-  ParticipantDashboard({required this.participantName});
+  ParticipantDashboard({
+    required this.participantName,
+    required this.institutionName,
+  });
 
   @override
   _ParticipantDashboardState createState() => _ParticipantDashboardState();
@@ -1143,7 +1505,7 @@ class _ParticipantDashboardState extends State<ParticipantDashboard> {
   @override
   void initState() {
     super.initState();
-    _dataManager.loadQuizzes().then((_) => setState(() {}));
+    _dataManager.loadQuizzes(context).then((_) => setState(() {}));
   }
 
   @override
@@ -1153,87 +1515,106 @@ class _ParticipantDashboardState extends State<ParticipantDashboard> {
     return Scaffold(
       appBar: AppBar(
         title: Text('Welcome, ${widget.participantName}'),
-        backgroundColor: Color(0xFF00C853),
-        foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: Icon(Icons.refresh_rounded),
+            onPressed: () {
+              _dataManager.loadQuizzes(context).then((_) => setState(() {}));
+            },
+          ),
+        ],
       ),
-      body: Padding(
-        padding: EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Available Quizzes:',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-            SizedBox(height: 16),
-            Expanded(
-              child: activeQuizzes.isEmpty
-                  ? Center(
-                      child: FadeIn(
-                        duration: Duration(milliseconds: 800),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.quiz_outlined,
-                              size: 80,
-                              color: Colors.grey[400],
-                            ),
-                            SizedBox(height: 16),
-                            Text(
-                              'No active quizzes available',
-                              style: Theme.of(context).textTheme.bodyLarge!.copyWith(
-                                    color: Colors.grey[600],
-                                  ),
-                            ),
-                            SizedBox(height: 8),
-                            Text(
-                              'Please wait for an admin to start a quiz',
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: Colors.grey[500],
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFF3F7FF), Colors.white],
+          ),
+        ),
+        child: Padding(
+          padding: EdgeInsets.all(20.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Available Quizzes',
+                style: Theme.of(context).textTheme.headlineMedium!.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              SizedBox(height: 16),
+              Expanded(
+                child: activeQuizzes.isEmpty
+                    ? Center(
+                        child: FadeIn(
+                          duration: Duration(milliseconds: 800),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.quiz_outlined,
+                                size: 80,
+                                color: Colors.grey[400],
                               ),
-                            ),
-                          ],
+                              SizedBox(height: 16),
+                              Text(
+                                'No active quizzes available',
+                                style: Theme.of(context).textTheme.bodyLarge!.copyWith(
+                                      color: Colors.grey[600],
+                                      fontSize: 18,
+                                    ),
+                              ),
+                              SizedBox(height: 8),
+                              Text(
+                                'Please wait for an admin to start a quiz',
+                                style: TextStyle(
+                                  color: Colors.grey[500],
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    )
-                  : ListView.builder(
-                      itemCount: activeQuizzes.length,
-                      itemBuilder: (context, index) {
-                        final quiz = activeQuizzes[index];
-                        return FadeInUp(
-                          duration: Duration(milliseconds: 600 + index * 100),
-                          child: Card(
-                            color: Colors.white.withOpacity(0.9),
-                            child: ListTile(
-                              leading: CircleAvatar(
-                                backgroundColor: Color(0xFF1A237E),
-                                child: Icon(Icons.quiz, color: Colors.white),
-                              ),
-                              title: Text(
-                                quiz.title,
-                                style: Theme.of(context).textTheme.bodyLarge!.copyWith(fontWeight: FontWeight.bold),
-                              ),
-                              subtitle: Text(
-                                '${quiz.questions.length} questions • ${quiz.timePerQuestion}s per question',
-                                style: TextStyle(color: Colors.grey[600]),
-                              ),
-                              trailing: ElevatedButton(
-                                onPressed: () => _joinQuiz(quiz),
-                                child: Text('Join'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Color(0xFF00C853),
-                                  foregroundColor: Colors.white,
+                      )
+                    : ListView.builder(
+                        itemCount: activeQuizzes.length,
+                        itemBuilder: (context, index) {
+                          final quiz = activeQuizzes[index];
+                          return FadeInUp(
+                            duration: Duration(milliseconds: 600 + index * 100),
+                            child: Card(
+                              child: ListTile(
+                                leading: CircleAvatar(
+                                  backgroundColor: Color(0xFF1565C0),
+                                  child: Icon(Icons.quiz, color: Colors.white),
+                                ),
+                                title: Text(
+                                  quiz.title,
+                                  style: Theme.of(context).textTheme.bodyLarge!.copyWith(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                ),
+                                subtitle: Text(
+                                  '${quiz.questions.length} questions • ${quiz.timePerQuestion}s per question',
+                                  style: TextStyle(color: Colors.grey[600]),
+                                ),
+                                trailing: ElevatedButton(
+                                  onPressed: () => _joinQuiz(quiz),
+                                  child: Text('Join'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Color(0xFF00E676),
+                                    foregroundColor: Colors.white,
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                        );
-                      },
-                    ),
-            ),
-          ],
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1246,6 +1627,7 @@ class _ParticipantDashboardState extends State<ParticipantDashboard> {
         builder: (context) => QuizScreen(
           quiz: quiz,
           participantName: widget.participantName,
+          institutionName: widget.institutionName,
         ),
       ),
     );
@@ -1256,8 +1638,13 @@ class _ParticipantDashboardState extends State<ParticipantDashboard> {
 class QuizScreen extends StatefulWidget {
   final Quiz quiz;
   final String participantName;
+  final String institutionName;
 
-  QuizScreen({required this.quiz, required this.participantName});
+  QuizScreen({
+    required this.quiz,
+    required this.participantName,
+    required this.institutionName,
+  });
 
   @override
   _QuizScreenState createState() => _QuizScreenState();
@@ -1325,6 +1712,7 @@ class _QuizScreenState extends State<QuizScreen> {
 
     final result = ParticipantResult(
       participantName: widget.participantName,
+      institutionName: widget.institutionName,
       quizId: widget.quiz.id,
       score: _score,
       totalQuestions: widget.quiz.questions.length,
@@ -1352,151 +1740,114 @@ class _QuizScreenState extends State<QuizScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.quiz.title),
-        backgroundColor: Color(0xFF1A237E),
-        foregroundColor: Colors.white,
         automaticallyImplyLeading: false,
       ),
-      body: Padding(
-        padding: EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            FadeIn(
-              duration: Duration(milliseconds: 500),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Question ${_currentQuestionIndex + 1} of ${widget.quiz.questions.length}',
-                    style: Theme.of(context).textTheme.bodyLarge!.copyWith(fontWeight: FontWeight.bold),
-                  ),
-                  Container(
-                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: _timeLeft <= 5 ? Colors.red : Color(0xFFFF6F00),
-                      borderRadius: BorderRadius.circular(20),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFF3F7FF), Colors.white],
+          ),
+        ),
+        child: Padding(
+          padding: EdgeInsets.all(20.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              FadeIn(
+                duration: Duration(milliseconds: 500),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Question ${_currentQuestionIndex + 1} of ${widget.quiz.questions.length}',
+                      style: Theme.of(context).textTheme.bodyLarge!.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
                     ),
-                    child: Text(
-                      '${_timeLeft}s',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
+                    Container(
+                      padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: _timeLeft <= 5 ? Colors.red : Color(0xFF1565C0),
+                        borderRadius: BorderRadius.circular(20),
                       ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            SizedBox(height: 8),
-            LinearProgressIndicator(
-              value: (_currentQuestionIndex + 1) / widget.quiz.questions.length,
-              backgroundColor: Colors.grey[300],
-              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF1A237E)),
-            ),
-            SizedBox(height: 32),
-            FadeIn(
-              duration: Duration(milliseconds: 600),
-              child: Container(
-                width: double.infinity,
-                padding: EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.9),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Color(0xFF1A237E).withOpacity(0.2)),
-                ),
-                child: Text(
-                  question.question,
-                  style: Theme.of(context).textTheme.headlineMedium,
-                ),
-              ),
-            ),
-            SizedBox(height: 24),
-            Expanded(
-              child: ListView.builder(
-                itemCount: question.options.length,
-                itemBuilder: (context, index) {
-                  return FadeInUp(
-                    duration: Duration(milliseconds: 600 + index * 100),
-                    child: Padding(
-                      padding: EdgeInsets.only(bottom: 12),
-                      child: InkWell(
-                        onTap: () {
-                          setState(() {
-                            _selectedAnswer = index;
-                          });
-                        },
-                        child: Container(
-                          padding: EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: _selectedAnswer == index
-                                ? Color(0xFF1A237E).withOpacity(0.1)
-                                : Colors.white.withOpacity(0.9),
-                            border: Border.all(
-                              color: _selectedAnswer == index
-                                  ? Color(0xFF1A237E)
-                                  : Colors.grey[300]!,
-                              width: 2,
-                            ),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 24,
-                                height: 24,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: _selectedAnswer == index
-                                      ? Color(0xFF1A237E)
-                                      : Colors.transparent,
-                                  border: Border.all(
-                                    color: _selectedAnswer == index
-                                        ? Color(0xFF1A237E)
-                                        : Colors.grey,
-                                  ),
-                                ),
-                                child: _selectedAnswer == index
-                                    ? Icon(Icons.check, size: 16, color: Colors.white)
-                                    : null,
-                              ),
-                              SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  '${String.fromCharCode(65 + index)}. ${question.options[index]}',
-                                  style: Theme.of(context).textTheme.bodyLarge!.copyWith(
-                                        fontWeight: _selectedAnswer == index
-                                            ? FontWeight.w600
-                                            : FontWeight.normal,
-                                      ),
-                                ),
-                              ),
-                            ],
-                          ),
+                      child: Text(
+                        '$_timeLeft s',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
                     ),
-                  );
-                },
+                  ],
+                ),
               ),
-            ),
-            SizedBox(height: 16),
-            FadeIn(
-              duration: Duration(milliseconds: 700),
-              child: Container(
-                width: double.infinity,
-                height: 50,
+              SizedBox(height: 16),
+              LinearProgressIndicator(
+                value: (_currentQuestionIndex + 1) / widget.quiz.questions.length,
+                backgroundColor: Colors.grey[200],
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF1565C0)),
+              ),
+              SizedBox(height: 24),
+              FadeIn(
+                duration: Duration(milliseconds: 600),
+                child: Card(
+                  child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text(
+                      question.question,
+                      style: Theme.of(context).textTheme.headlineMedium,
+                    ),
+                  ),
+                ),
+              ),
+              SizedBox(height: 24),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: question.options.length,
+                  itemBuilder: (context, index) {
+                    return FadeInUp(
+                      duration: Duration(milliseconds: 600 + index * 100),
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8),
+                        child: RadioListTile<int>(
+                          value: index,
+                          groupValue: _selectedAnswer,
+                          onChanged: (value) {
+                            setState(() {
+                              _selectedAnswer = value!;
+                            });
+                          },
+                          title: Text(
+                            '${String.fromCharCode(65 + index)}. ${question.options[index]}',
+                            style: Theme.of(context).textTheme.bodyLarge,
+                          ),
+                          activeColor: Color(0xFF1565C0),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              SizedBox(height: 24),
+              FadeIn(
+                duration: Duration(milliseconds: 700),
                 child: ElevatedButton(
                   onPressed: _selectedAnswer != -1 ? _nextQuestion : null,
                   child: Text(
                     _currentQuestionIndex == widget.quiz.questions.length - 1
                         ? 'Finish Quiz'
                         : 'Next Question',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    minimumSize: Size(double.infinity, 50),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -1508,9 +1859,7 @@ class QuizResultScreen extends StatelessWidget {
   final ParticipantResult result;
   final Quiz quiz;
 
-  QuizResultScreen({required this.result, required this.quiz});
-  
-  BuildContext? get context => null;
+  const QuizResultScreen({super.key, required this.result, required this.quiz});
 
   @override
   Widget build(BuildContext context) {
@@ -1518,65 +1867,70 @@ class QuizResultScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Quiz Complete'),
-        backgroundColor: Color(0xFF00C853),
-        foregroundColor: Colors.white,
+        title: const Text('Quiz Results'),
         automaticallyImplyLeading: false,
       ),
-      body: Center(
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFF3F7FF), Colors.white],
+          ),
+        ),
         child: Padding(
-          padding: EdgeInsets.all(24.0),
+          padding: const EdgeInsets.all(20.0),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               FadeIn(
-                duration: Duration(milliseconds: 500),
+                duration: const Duration(milliseconds: 500),
                 child: Container(
-                  width: 100,
-                  height: 100,
+                  padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
-                    color: percentage >= 70 ? Color(0xFF00C853) : Color(0xFFFF6F00),
                     shape: BoxShape.circle,
+                    color: percentage >= 70 ? const Color(0xFF00E676) : const Color(0xFFFF5252),
                   ),
                   child: Icon(
-                    percentage >= 70 ? Icons.check : Icons.info,
-                    size: 50,
+                    percentage >= 70 ? Icons.check : Icons.close,
+                    size: 60,
                     color: Colors.white,
                   ),
                 ),
               ),
-              SizedBox(height: 24),
+              const SizedBox(height: 24),
               FadeIn(
-                duration: Duration(milliseconds: 600),
+                duration: const Duration(milliseconds: 600),
                 child: Text(
-                  'Quiz Completed!',
+                  percentage >= 70 ? 'Congratulations!' : 'Better Luck Next Time!',
                   style: Theme.of(context).textTheme.headlineLarge,
                 ),
               ),
-              SizedBox(height: 32),
+              const SizedBox(height: 24),
               FadeIn(
-                duration: Duration(milliseconds: 700),
+                duration: const Duration(milliseconds: 700),
                 child: Card(
-                  color: Colors.white.withOpacity(0.9),
                   child: Padding(
-                    padding: EdgeInsets.all(24.0),
+                    padding: const EdgeInsets.all(20),
                     child: Column(
                       children: [
-                        _buildResultRow('Your Score', '${result.score}/${result.totalQuestions}'),
-                        _buildResultRow('Percentage', '$percentage%'),
-                        _buildResultRow('Time Taken', '${_formatTime(result.totalTimeSpent)}'),
-                        _buildResultRow('Quiz', quiz.title),
+                        _buildResultRow(context, 'Participant', result.participantName),
+                        _buildResultRow(context, 'Institution', result.institutionName),
+                        _buildResultRow(context, 'Quiz', quiz.title),
+                        _buildResultRow(context, 'Score', '${result.score}/${result.totalQuestions}'),
+                        _buildResultRow(context, 'Percentage', '$percentage%'),
+                        _buildResultRow(context, 'Time Taken', _formatTime(result.totalTimeSpent)),
                       ],
                     ),
                   ),
                 ),
               ),
-              SizedBox(height: 32),
+              const SizedBox(height: 24),
               Row(
                 children: [
                   Expanded(
                     child: FadeIn(
-                      duration: Duration(milliseconds: 800),
+                      duration: const Duration(milliseconds: 800),
                       child: ElevatedButton(
                         onPressed: () {
                           Navigator.push(
@@ -1586,23 +1940,33 @@ class QuizResultScreen extends StatelessWidget {
                             ),
                           );
                         },
-                        child: Text('View Leaderboard'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF00BCD4),
+                        ),
+                        child: const Text('View Leaderboard'),
                       ),
                     ),
                   ),
-                  SizedBox(width: 16),
+                  const SizedBox(width: 16),
                   Expanded(
                     child: FadeIn(
-                      duration: Duration(milliseconds: 900),
+                      duration: const Duration(milliseconds: 900),
                       child: ElevatedButton(
                         onPressed: () {
-                          Navigator.of(context).popUntil((route) => route.isFirst);
+                          if (Navigator.of(context).canPop()) {
+                            Navigator.of(context).popUntil((route) => route.isFirst);
+                          } else {
+                            // Fallback to push home screen if popUntil fails
+                            Navigator.pushReplacement(
+                              context,
+                              MaterialPageRoute(builder: (context) => HomeScreen()),
+                            );
+                          }
                         },
-                        child: Text('Back to Home'),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.grey,
-                          foregroundColor: Colors.white,
+                          backgroundColor: Colors.grey[600],
                         ),
+                        child: const Text('Back to Home'),
                       ),
                     ),
                   ),
@@ -1615,19 +1979,19 @@ class QuizResultScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildResultRow(String label, String value) {
+  Widget _buildResultRow(BuildContext context, String label, String value) {
     return Padding(
-      padding: EdgeInsets.symmetric(vertical: 8.0),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(
             label,
-            style: Theme.of(context!).textTheme.bodyLarge!.copyWith(color: Colors.grey[600]),
+            style: Theme.of(context).textTheme.bodyLarge!.copyWith(color: Colors.grey[600]),
           ),
           Text(
             value,
-            style: Theme.of(context!).textTheme.bodyLarge!.copyWith(fontWeight: FontWeight.bold),
+            style: Theme.of(context).textTheme.bodyLarge!.copyWith(fontWeight: FontWeight.bold),
           ),
         ],
       ),
@@ -1635,9 +1999,9 @@ class QuizResultScreen extends StatelessWidget {
   }
 
   String _formatTime(int seconds) {
-    int minutes = seconds ~/ 60;
-    int remainingSeconds = seconds % 60;
-    return '${minutes}m ${remainingSeconds}s';
+    final minutes = seconds ~/ 60;
+    final remainingSeconds = seconds % 60;
+    return '$minutes:${remainingSeconds.toString().padLeft(2, '0')}';
   }
 }
 
@@ -1657,83 +2021,111 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   @override
   void initState() {
     super.initState();
-    _dataManager.loadResults(widget.quiz.id).then((_) => setState(() {}));
+    _dataManager.loadResults(context, widget.quiz.id);
+    _dataManager.startLiveUpdates(context, widget.quiz.id); // Pass context here
+  }
+
+  @override
+  void dispose() {
+    _dataManager.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final results = _dataManager.getQuizResults(widget.quiz.id);
-
     return Scaffold(
       appBar: AppBar(
-        title: Text('Leaderboard'),
-        backgroundColor: Color(0xFF7B1FA2),
-        foregroundColor: Colors.white,
+        title: Text('${widget.quiz.title} Leaderboard'),
       ),
-      body: Padding(
-        padding: EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            FadeIn(
-              duration: Duration(milliseconds: 500),
-              child: Text(
-                widget.quiz.title,
-                style: Theme.of(context).textTheme.headlineLarge,
-              ),
-            ),
-            SizedBox(height: 8),
-            FadeIn(
-              duration: Duration(milliseconds: 600),
-              child: Text(
-                '${results.length} participants',
-                style: Theme.of(context).textTheme.bodyLarge!.copyWith(color: Colors.grey[600]),
-              ),
-            ),
-            SizedBox(height: 24),
-            Expanded(
-              child: results.isEmpty
-                  ? Center(
-                      child: FadeIn(
-                        duration: Duration(milliseconds: 800),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.leaderboard_outlined,
-                              size: 80,
-                              color: Colors.grey[400],
-                            ),
-                            SizedBox(height: 16),
-                            Text(
-                              'No participants yet',
-                              style: Theme.of(context).textTheme.bodyLarge!.copyWith(
-                                    color: Colors.grey[600],
-                                  ),
-                            ),
-                          ],
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFF3F7FF), Colors.white],
+          ),
+        ),
+        child: Padding(
+          padding: EdgeInsets.all(20.0),
+          child: StreamBuilder<List<ParticipantResult>>(
+            stream: _dataManager.resultsStream,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return Center(child: CircularProgressIndicator());
+              }
+
+              final results = snapshot.data ?? _dataManager.getQuizResults(widget.quiz.id);
+
+              if (results.isEmpty) {
+                return Center(
+                  child: FadeIn(
+                    duration: Duration(milliseconds: 800),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.leaderboard_outlined,
+                          size: 80,
+                          color: Colors.grey[400],
                         ),
-                      ),
-                    )
-                  : ListView.builder(
+                        SizedBox(height: 16),
+                        Text(
+                          'No participants yet',
+                          style: Theme.of(context).textTheme.bodyLarge!.copyWith(
+                                color: Colors.grey[600],
+                                fontSize: 18,
+                              ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  FadeIn(
+                    duration: Duration(milliseconds: 500),
+                    child: Text(
+                      widget.quiz.title,
+                      style: Theme.of(context).textTheme.headlineMedium!.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                  ),
+                  SizedBox(height: 8),
+                  FadeIn(
+                    duration: Duration(milliseconds: 600),
+                    child: Text(
+                      '${results.length} participants',
+                      style: Theme.of(context).textTheme.bodyLarge!.copyWith(
+                            color: Colors.grey[600],
+                          ),
+                    ),
+                  ),
+                  SizedBox(height: 24),
+                  Expanded(
+                    child: ListView.builder(
                       itemCount: results.length,
                       itemBuilder: (context, index) {
                         final result = results[index];
                         final percentage = (result.score / result.totalQuestions * 100).round();
-
                         return FadeInUp(
                           duration: Duration(milliseconds: 600 + index * 100),
                           child: Card(
-                            elevation: index < 3 ? 8 : 2,
-                            color: index < 3 ? _getTopThreeColor(index) : Colors.white.withOpacity(0.9),
+                            elevation: index < 3 ? 12 : 8,
+                            color: index < 3
+                                ? _getTopThreeColor(index)
+                                : Colors.white.withOpacity(0.9),
                             child: ListTile(
                               leading: CircleAvatar(
-                                backgroundColor: index < 3 ? Colors.white : Color(0xFF1A237E),
+                                backgroundColor: index < 3 ? Colors.white : Color(0xFF1565C0),
                                 child: Text(
                                   '${index + 1}',
                                   style: TextStyle(
-                                    fontWeight: FontWeight.bold,
                                     color: index < 3 ? _getTopThreeColor(index) : Colors.white,
+                                    fontWeight: FontWeight.bold,
                                   ),
                                 ),
                               ),
@@ -1745,14 +2137,13 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                                     ),
                               ),
                               subtitle: Text(
-                                'Completed: ${_formatDateTime(result.completedAt)}',
+                                '${result.institutionName}\n${_formatDateTime(result.completedAt)}',
                                 style: TextStyle(
                                   color: index < 3 ? Colors.white70 : Colors.grey[600],
                                 ),
                               ),
                               trailing: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
-                                crossAxisAlignment: CrossAxisAlignment.end,
                                 children: [
                                   Text(
                                     '${result.score}/${result.totalQuestions}',
@@ -1776,8 +2167,11 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                         );
                       },
                     ),
-            ),
-          ],
+                  ),
+                ],
+              );
+            },
+          ),
         ),
       ),
     );
@@ -1786,20 +2180,20 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   Color _getTopThreeColor(int index) {
     switch (index) {
       case 0:
-        return Colors.amber[600]!; // Gold
+        return Color(0xFFFFD700); // Gold
       case 1:
-        return Colors.grey[600]!; // Silver
+        return Color(0xFFC0C0C0); // Silver
       case 2:
-        return Colors.brown[400]!; // Bronze
+        return Color(0xFFCD7F32); // Bronze
       default:
-        return Color(0xFF1A237E);
+        return Color(0xFF1565C0);
     }
   }
 
   String _formatTime(int seconds) {
-    int minutes = seconds ~/ 60;
-    int remainingSeconds = seconds % 60;
-    return '${minutes}m ${remainingSeconds}s';
+    final minutes = seconds ~/ 60;
+    final remainingSeconds = seconds % 60;
+    return '$minutes:${remainingSeconds.toString().padLeft(2, '0')}';
   }
 
   String _formatDateTime(DateTime dateTime) {
